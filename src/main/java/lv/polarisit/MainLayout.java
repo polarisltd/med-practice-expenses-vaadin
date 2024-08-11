@@ -12,8 +12,8 @@ public class MainLayout extends AppLayout {
         DrawerToggle toggle = new DrawerToggle();
 
         // Create the navigation links
-        RouterLink mainViewLink = new RouterLink("Main View", MainView.class);
-        RouterLink uploadViewLink = new RouterLink("Upload View", UploadView.class);
+        RouterLink mainViewLink = new RouterLink("Overview", DashboardView.class);
+        RouterLink uploadViewLink = new RouterLink("Upload", UploadView.class);
 
         // Add the toggle and links to the drawer
         addToDrawer(new Span(mainViewLink));
