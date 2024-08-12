@@ -13,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 /*
 
@@ -35,7 +36,7 @@ OOXML: LibreOffice export format 2010/office-365 format
 
 public class WordTemplateProcessor {
     private static final Logger LOGGER = LoggerFactory.getLogger(WordTemplateProcessor.class);
-    public static void process(String templatePath, String outputPath, Map<String, String> replacements, Path imagePath) {
+    public static void process(String templatePath, String outputPath, Map<String, String> replacements, List<Path> imagePath) {
         try (FileInputStream fis = new FileInputStream(templatePath);
              XWPFDocument document = new XWPFDocument(fis)) {
 
@@ -55,6 +56,7 @@ public class WordTemplateProcessor {
             // Replace image placeholder
             insertImage(document, imagePath);
 
+
             // Save the modified document
             try (FileOutputStream fos = new FileOutputStream(outputPath)) {
                 document.write(fos);
@@ -65,35 +67,43 @@ public class WordTemplateProcessor {
         }
     }
 
-    private static void insertImage(XWPFDocument document, Path imagePath) {
+    private static void insertImage(XWPFDocument document, List<Path> imagePaths) {
         for (XWPFParagraph paragraph : document.getParagraphs()) {
             for (XWPFRun run : paragraph.getRuns()) {
                 String text = run.getText(0);
                 if (text != null && text.contains("${image}")) {
                     run.setText("", 0); // Clear the placeholder text
-                    int width=0,height=0;
-                    try (FileInputStream imageStream = new FileInputStream(imagePath.toString())) {
-                        BufferedImage bimg = ImageIO.read(imageStream);
-                        width = bimg.getWidth();
-                        height = bimg.getHeight();
+                    imagePaths.forEach(imagePath -> {
+                        insertImage(run, imagePath);
+                    });
 
-                    }catch (Exception e) {
-                        LOGGER.error("error determining image file extension",e);
-                    }
-                    try (FileInputStream imageStream = new FileInputStream(imagePath.toString())) {
-                        LOGGER.info("Inserting image: {}", imagePath);
-                        run.addPicture(imageStream,
-                                getPictureType(getFileExtension(imagePath)),
-                                imagePath.getFileName().toString(),
-                                Units.toEMU(Math.min(width, 600)),
-                                Units.toEMU(Math.min(height, 600)));
-                    } catch (Exception e) {
-                        LOGGER.error("error determining image file extension",e);
-                    }
                 }
             }
         }
     }
+static void insertImage(XWPFRun run, Path imagePath) {
+            int width=0,height=0;
+            try (FileInputStream imageStream = new FileInputStream(imagePath.toString())) {
+                BufferedImage bimg = ImageIO.read(imageStream);
+                width = bimg.getWidth();
+                height = bimg.getHeight();
+
+            }catch (Exception e) {
+                LOGGER.error("error determining image file extension",e);
+            }
+            try (FileInputStream imageStream = new FileInputStream(imagePath.toString())) {
+                LOGGER.info("Inserting image: {}", imagePath);
+                run.addPicture(imageStream,
+                        getPictureType(getFileExtension(imagePath)),
+                        imagePath.getFileName().toString(),
+                        Units.toEMU(Math.min(width, 600)),
+                        Units.toEMU(Math.min(height, 600)));
+            } catch (Exception e) {
+                LOGGER.error("error determining image file extension",e);
+            }
+        }
+
+
 
 
 

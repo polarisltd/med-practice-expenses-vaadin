@@ -45,6 +45,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.poi.xwpf.usermodel.XWPFPictureData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pdfconverter.PdfToImageConverter;
 import pl.allegro.finance.tradukisto.MoneyConverters;
 
 import javax.imageio.ImageIO;
@@ -85,7 +86,7 @@ public class UploadView extends HorizontalLayout {
     private final Button clearButton = new Button("Clear");
     private Div imageContent;
     private String imageFilename;
-    private Path imagePath;
+    private List<Path> imagePaths;
 
 
     public UploadView(PropertyHolder propertyHolder, AktsRepository aktsRepository) {
@@ -110,11 +111,8 @@ public class UploadView extends HorizontalLayout {
                     Notification.show("Saved", 3000, Notification.Position.MIDDLE);
                     populateGrid();
                 } else {
-                    String errorMessages = validationStatus.getFieldValidationErrors().stream()
-                            .map(BindingValidationStatus::getMessage)
-                            .filter(Optional::isPresent)
-                            .map(Optional::get)
-                            .collect(Collectors.joining(", "));                    Notification.show("Validation failed: " + errorMessages, 3000, Notification.Position.MIDDLE);
+                    String errorMessages = validationStatus.getFieldValidationErrors().stream().map(BindingValidationStatus::getMessage).filter(Optional::isPresent).map(Optional::get).collect(Collectors.joining(", "));
+                    Notification.show("Validation failed: " + errorMessages, 3000, Notification.Position.MIDDLE);
                 }
 
             } catch (Exception e) {
@@ -130,45 +128,42 @@ public class UploadView extends HorizontalLayout {
             });
             return deleteButton;
         })).setHeader("Actions");
-        gridAkts.getColumnByKey("receiptImagePath")
-                .setRenderer(new ComponentRenderer<>(akts -> {
+        gridAkts.getColumnByKey("receiptImagePath").setRenderer(new ComponentRenderer<>(akts -> {
             Div cell = new Div();
             cell.setText(akts.getReceiptImagePath());
             cell.getElement().setProperty("title", akts.getReceiptImagePath()); // Set tooltip
             return cell;
         }));
-        gridAkts.getColumnByKey("docDate")
-                .setRenderer(new ComponentRenderer<>(akts -> {
-                    Div cell = new Div();
-                    cell.setText(akts.getDocDate().toString());
-                    cell.getElement().setProperty("title", akts.getDocDate().toString()); // Set tooltip
-                    return cell;
-                }));
+        gridAkts.getColumnByKey("docDate").setRenderer(new ComponentRenderer<>(akts -> {
+            Div cell = new Div();
+            cell.setText(akts.getDocDate().toString());
+            cell.getElement().setProperty("title", akts.getDocDate().toString()); // Set tooltip
+            return cell;
+        }));
         convertButton.addClickListener(event -> {
 
             String templatePath = propertyHolder.getWordTemplatePath();
             Akts akts = new Akts();
             try {
                 binder.writeBean(akts);
-            }catch(Exception e){
+            } catch (Exception e) {
                 LOGGER.debug("Exception occurred while writing Entity bean", e);
             }
-            String docFilename = getDocFilename(akts)+".docx";
-            String outputPath = Paths.get(propertyHolder.getWordOutputPath(),docFilename).toString();
+            String docFilename = getDocFilename(akts) + ".docx";
+            String outputPath = Paths.get(propertyHolder.getWordOutputPath(), docFilename).toString();
             Map<String, String> replacements = new HashMap<>();
 
             var bdValue = new BigDecimal(docAmount.getValue());
             MoneyConverters moneyConverter = MoneyConverters.LATVIAN_BANKING_MONEY_VALUE;
-            String valueAsWords =
-                    moneyConverter.asWords(bdValue);
+            String valueAsWords = moneyConverter.asWords(bdValue);
             replacements.put("${name}", personName.getValue());
             replacements.put("${date}", docDate.getValue().toString());
-            replacements.put("${date-wording}",dateWording(docDate.getValue()));
+            replacements.put("${date-wording}", dateWording(docDate.getValue()));
             replacements.put("${amount}", docAmount.getValue());
-            replacements.put("${wording}",valueAsWords );
+            replacements.put("${wording}", valueAsWords);
             XWPFPictureData.setMaxImageSize(100_000_000); // check is working
             LOGGER.info("maxImageSize%s".formatted(XWPFPictureData.getMaxImageSize()));
-            WordTemplateProcessor.process(templatePath, outputPath, replacements,imagePath.toAbsolutePath());
+            WordTemplateProcessor.process(templatePath, outputPath, replacements, imagePaths);
 
             StreamResource resource = new StreamResource(docFilename, () -> {
                 try {
@@ -192,56 +187,61 @@ public class UploadView extends HorizontalLayout {
             docAmount.clear();
             imageContent.removeAll();
             imageFilename = null;
-            imagePath = null;
+            imagePaths = List.of();
             Notification.show("Fields cleared", 3000, Notification.Position.MIDDLE);
         });
 
-        form.add(new H1("Upload"),clearButton, docDate,personName,docAmount, createSimpleUpload(),saveButton,convertButton);
+        form.add(new H1("Upload"), clearButton, docDate, personName, docAmount, createSimpleUpload(), saveButton, convertButton);
         this.add(form);
         var grid = new VerticalLayout();
-        grid.add(new H1("Browser"),gridAkts);
+        grid.add(new H1("Browser"), gridAkts);
         this.add(form, grid);
 
         populateGrid();
     }
+
     private void populateGrid() {
         List<Akts> aktsList = aktsRepository.findAll();
         gridAkts.setItems(aktsList);
     }
+
     private String dateWording(LocalDate date) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy. 'gada' dd. MMMM.", new Locale("lv", "LV"));
         String formattedDate = date.format(formatter);
         LOGGER.info(formattedDate); // Output: 1 augusts, 2024
         return formattedDate;
     }
+
     private Div createSimpleUpload() {
         Div output = new Div();
 
         //@formatter:off
-        // begin-source-example
-        // source-example-heading: Simple in memory receiver for single file upload
-        MemoryBuffer buffer = new MemoryBuffer();
-        Upload upload = new Upload(buffer);
-        upload.setAcceptedFileTypes("image/jpeg", "image/png", "image/gif");
-        upload.setAutoUpload(true);
+  // begin-source-example
+  // source-example-heading: Simple in memory receiver for single file upload
+  MemoryBuffer buffer = new MemoryBuffer();
+  Upload upload = new Upload(buffer);
+  upload.setAcceptedFileTypes("image/jpeg", "image/png", "image/gif", "application/pdf");
+  upload.setAutoUpload(true);
 
-        upload.addSucceededListener(event -> {
-            this.imageFilename = event.getFileName();
-            Component imageComponent = createComponent(event.getMIMEType(),
-                    event.getFileName(), buffer.getInputStream());
-            showOutput(imageFilename, imageComponent, output);
-        });
-        // end-source-example
-        //@formatter:on
+  upload.addSucceededListener(event -> {
+  this.imageFilename = event.getFileName();
+  Component imageComponent = createComponent(
+        event.getMIMEType(),
+        event.getFileName(), buffer.getInputStream());
+
+  showOutput(imageFilename, imageComponent, output);
+  });
+  // end-source-example
+  //@formatter:on
         upload.setMaxFileSize(1024 * 1024 * 1024);
         upload.setId("test-upload");
 
         output.setId("test-output");
 
-        output.add(new Div("Simple in memory receiver for single file upload"),upload);
+        output.add(new Div("Simple in memory receiver for single file upload"), upload);
 
         //addCard("Simple in memory receiver for single file upload", upload,
-        //        output);
+        //  output);
         return output;
     }
 
@@ -250,12 +250,7 @@ public class UploadView extends HorizontalLayout {
 
         String formattedDate = akts.getDocDate().format(dateFormatter);
 
-        return "%s_%s_%s_%s".formatted(
-                formattedDate,
-                "LBAP_akts",
-                akts.getPersonName().replace(" ", "-"),
-                akts.getDocAmount().toPlainString().replace(".", "-")
-        );
+        return "%s_%s_%s_%s".formatted(formattedDate, "LBAP_akts", akts.getPersonName().replace(" ", "-"), akts.getDocAmount().toPlainString().replace(".", "-"));
     }
 
 
@@ -263,67 +258,117 @@ public class UploadView extends HorizontalLayout {
         return personName.getListDataView().getItems().findFirst().orElse(null);
     }
 
-    private Component createComponent(String mimeType, String fileName,
-                                      InputStream stream) {
+    private Component createComponent(String mimeType, String fileName, InputStream stream) {
         if (mimeType.startsWith("text")) {
-          return createTextComponent(stream);
+            return createTextComponent(stream);
         } else if (mimeType.startsWith("image")) {
             var documentDate = docDate.getValue();
             var person = personName.getValue();
-            Image image = new Image();
+
             try {
+
 
                 byte[] bytes = IOUtils.toByteArray(stream);
 
-                imagePath = Paths.get(this.propertyHolder.getImagePath(), imageFilename);
+                Path imagePath = Paths.get(this.propertyHolder.getImagePath(), imageFilename);
+                this.imagePaths = List.of(imagePath);
                 Files.createDirectories(imagePath.getParent());
                 Files.write(imagePath, bytes);
                 LOGGER.info("Image uploaded to " + imagePath.toAbsolutePath());
 
-                image.getElement().setAttribute("src", new StreamResource(
-                        imageFilename, () -> new ByteArrayInputStream(bytes)));
-                try (ImageInputStream in = ImageIO.createImageInputStream(
-                        new ByteArrayInputStream(bytes))) {
-                    final Iterator<ImageReader> readers = ImageIO
-                            .getImageReaders(in);
-                    if (readers.hasNext()) {
-                        ImageReader reader = readers.next();
-                        try {
-                            reader.setInput(in);
-                            image.setWidth( "300px");
-                        } finally {
-                            reader.dispose();
-                        }
-                    }
-                }
+                return createImage(new ByteArrayInputStream(bytes));
+
+
             } catch (IOException e) {
                 LOGGER.error("Error reading image", e);
             }
 
-            return image;
+
+        } else if (mimeType.equals("application/pdf")) {
+            try {
+                byte[] bytes = IOUtils.toByteArray(stream);
+                Path pdfPath = Paths.get(this.propertyHolder.getImagePath(), imageFilename);
+                Files.createDirectories(pdfPath.getParent());
+                Files.write(pdfPath, bytes); // write pdf to file
+                LOGGER.info("Pdf uploaded to " + pdfPath.toAbsolutePath());
+                List<String> images = PdfToImageConverter.convertPdfToImages(pdfPath.toAbsolutePath().toString(), this.propertyHolder.getImagePath());
+                Div outputContainer = new Div();
+                imagePaths = new ArrayList<>();
+                images.forEach(thisImagePath -> {
+                    LOGGER.info("image uploaded to: %s".formatted(thisImagePath));
+                    imagePaths.add(Paths.get(thisImagePath));
+                    InputStream is = createInputStreamFromFile(thisImagePath);
+                    Image image = createImage(is);
+                    image.setWidth("600px");
+                    Div imageContainer = new Div(image);
+                    outputContainer.add(imageContainer);
+                });
+                return outputContainer;
+            } catch (IOException e) {
+                LOGGER.error("Error reading image", e);
+            }
+
         }
         Div content = new Div();
-        String text = String.format("Mime type: '%s'\nSHA-256 hash: '%s'",
-                mimeType, MessageDigestUtil.sha256(stream.toString()));
+        String text = String.format("Mime type: '%s'\nSHA-256 hash: '%s'", mimeType, MessageDigestUtil.sha256(stream.toString()));
         content.setText(text);
         return content;
 
     }
 
-  private Component createTextComponent(InputStream stream) {
-    String text;
-    try {
-        text = IOUtils.toString(stream, StandardCharsets.UTF_8);
-    } catch (IOException e) {
-        text = "exception reading stream";
-    }
-    return new Text(text);
-  }
+        public static InputStream createInputStreamFromFile(String absoluteFilePath) {
+            try {
+                Path path = Paths.get(absoluteFilePath);
+                return Files.newInputStream(path);
+            } catch (IOException e) {
+                LOGGER.error("Error reading file", e);
+                return new ByteArrayInputStream(new byte[0]);
+            }
+        }
 
-  private void showOutput(String text, Component content,
-            HasComponents outputContainer) {
+    Image createImage(InputStream stream) {
+        Image image = new Image();
+        try {
+
+            byte[] bytes = IOUtils.toByteArray(stream);
+
+            Path imagePath = Paths.get(this.propertyHolder.getImagePath(), imageFilename);
+            Files.createDirectories(imagePath.getParent());
+            Files.write(imagePath, bytes);
+            LOGGER.info("Image uploaded to " + imagePath.toAbsolutePath());
+
+            image.getElement().setAttribute("src", new StreamResource(imageFilename, () -> new ByteArrayInputStream(bytes)));
+            try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+                final Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+                if (readers.hasNext()) {
+                    ImageReader reader = readers.next();
+                    try {
+                        reader.setInput(in);
+                        image.setWidth("300px");
+                    } finally {
+                        reader.dispose();
+                    }
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.error("Error reading image", e);
+        }
+        return image;
+    }
+
+
+    private Component createTextComponent(InputStream stream) {
+        String text;
+        try {
+            text = IOUtils.toString(stream, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            text = "exception reading stream";
+        }
+        return new Text(text);
+    }
+
+    private void showOutput(String text, Component content, HasComponents outputContainer) {
         HtmlComponent p = new HtmlComponent(Tag.P);
-        //p.getElement().setText(text);
         outputContainer.add(p);
         imageContent = new Div(new Div(text), content);
         outputContainer.add(imageContent);
