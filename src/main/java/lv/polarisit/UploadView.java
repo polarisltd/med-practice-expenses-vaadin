@@ -80,7 +80,7 @@ public class UploadView extends HorizontalLayout {
     private final Grid<Akts> gridAkts = new Grid<>(Akts.class);
     private final DatePicker docDate = new DatePicker("Document date");
     private final TextField docAmount = new TextField("Amount");
-    private final Button saveButton = new Button("Save");
+    //private final Button saveButton = new Button("Save");
     private final Button convertButton = new Button("Convert to word");
     private final BeanValidationBinder<Akts> binder = new BeanValidationBinder<>(Akts.class);
     private final Button clearButton = new Button("Clear");
@@ -100,25 +100,7 @@ public class UploadView extends HorizontalLayout {
         binder.bind(docDate, Akts::getDocDate, Akts::setDocDate);
         binder.bind(docAmount, akts -> akts.getDocAmount() != null ? akts.getDocAmount().toString() : "", (akts, amountStr) -> akts.setDocAmount(amountStr != null && !amountStr.isEmpty() ? new BigDecimal(amountStr) : null));
 
-        saveButton.addClickListener(event -> {
-            Akts akts = new Akts();
-            try {
-                BinderValidationStatus<Akts> validationStatus = binder.validate();
-                if (validationStatus.isOk()) {
-                    binder.writeBean(akts);
-                    akts.setReceiptImagePath(this.imageFilename);
-                    aktsRepository.save(akts);
-                    Notification.show("Saved", 3000, Notification.Position.MIDDLE);
-                    populateGrid();
-                } else {
-                    String errorMessages = validationStatus.getFieldValidationErrors().stream().map(BindingValidationStatus::getMessage).filter(Optional::isPresent).map(Optional::get).collect(Collectors.joining(", "));
-                    Notification.show("Validation failed: " + errorMessages, 3000, Notification.Position.MIDDLE);
-                }
 
-            } catch (Exception e) {
-                Notification.show("error: %s".formatted(e.getMessage()), 3000, Notification.Position.MIDDLE);
-            }
-        });
         gridAkts.addColumn(new ComponentRenderer<>(akts -> {
             Button deleteButton = new Button("Delete");
             deleteButton.addClickListener(event -> {
@@ -141,6 +123,8 @@ public class UploadView extends HorizontalLayout {
             return cell;
         }));
         convertButton.addClickListener(event -> {
+
+            saveAkts();
 
             String templatePath = propertyHolder.getWordTemplatePath();
             Akts akts = new Akts();
@@ -191,7 +175,7 @@ public class UploadView extends HorizontalLayout {
             Notification.show("Fields cleared", 3000, Notification.Position.MIDDLE);
         });
 
-        form.add(new H1("Upload"), clearButton, docDate, personName, docAmount, createSimpleUpload(), saveButton, convertButton);
+        form.add(new H1("Upload"), clearButton, docDate, personName, docAmount, createSimpleUpload(), convertButton);
         this.add(form);
         var grid = new VerticalLayout();
         grid.add(new H1("Browser"), gridAkts);
@@ -210,6 +194,26 @@ public class UploadView extends HorizontalLayout {
         String formattedDate = date.format(formatter);
         LOGGER.info(formattedDate); // Output: 1 augusts, 2024
         return formattedDate;
+    }
+
+    void saveAkts() {
+        Akts akts = new Akts();
+        try {
+            BinderValidationStatus<Akts> validationStatus = binder.validate();
+            if (validationStatus.isOk()) {
+                binder.writeBean(akts);
+                akts.setReceiptImagePath(this.imageFilename);
+                aktsRepository.save(akts);
+                Notification.show("Saved", 3000, Notification.Position.MIDDLE);
+                populateGrid();
+            } else {
+                String errorMessages = validationStatus.getFieldValidationErrors().stream().map(BindingValidationStatus::getMessage).filter(Optional::isPresent).map(Optional::get).collect(Collectors.joining(", "));
+                Notification.show("Validation failed: " + errorMessages, 3000, Notification.Position.MIDDLE);
+            }
+
+        } catch (Exception e) {
+            Notification.show("error: %s".formatted(e.getMessage()), 3000, Notification.Position.MIDDLE);
+        }
     }
 
     private Div createSimpleUpload() {
